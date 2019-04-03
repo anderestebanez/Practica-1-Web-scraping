@@ -17,8 +17,12 @@ import re
 import time
 import certifi
 from bs4 import BeautifulSoup
+import pandas as pd
+import numpy as np
 from dateutil import parser
-from reason_classifier import ReasonClassifier
+#from reason_classifier import ReasonClassifier
+
+
 
 class SubastaBOEScraper():
     
@@ -80,13 +84,14 @@ class SubastaBOEScraper():
                             'campo%5B16%5D=SUBASTA.FECHA_INICIO_YMD&dato%5B16%5D%5B0%5D=&dato%5B16%5D%5B1%5D=&',
                             'page_hits=200&sort_field%5B0%5D=SUBASTA.FECHA_FIN_YMD&sort_order%5B0%5D=desc&sort_field%5B1%5D=SUBASTA.FECHA_FIN_YMD&sort_order%5B1%5D=asc&sort_field%5B2%5D=SUBASTA.HORA_FIN&sort_order%5B2%5D=asc&accion=Buscar'])
 
-    def __download_html(self, url):
+    def __download_html(self, url, sleep=0):
 
         http = urllib3.PoolManager(cert_reqs='CERT_REQUIRED',
                            ca_certs=certifi.where())
         response = http.request('GET',url)
         if response.status==200:
             return response.data
+            time.sleep(sleep)
         else:
             return None
 
@@ -126,7 +131,7 @@ class SubastaBOEScraper():
         return len(self.listSubastas)
         
     def __evaluate_complexity(self):
-        print("There are %d links. The expected time is %d seconds",[len(self.listSubastas),len(self.listSubastas)*3])
+        print("There are %d links. The expected time is %d seconds"%(len(self.listSubastas),len(self.listSubastas)*2.5))
         return None
 
     #Este código scrapear estructuras estandars: InforGeneral, Autoridades, Administrador concursal y Bienes
@@ -135,7 +140,6 @@ class SubastaBOEScraper():
         bs = BeautifulSoup(html, 'html.parser')
         
         infoGeneral={}
-        
         trs=bs.find("table", attrs={"class":"datosSubastas"}).find_all("tr")
         for tr in trs:    
             infoGeneral[tr.find("th").text]=tr.find("td").text.strip("\n")
@@ -143,33 +147,82 @@ class SubastaBOEScraper():
         return infoGeneral
     
     def __scrape_Pujas(self,urlSubasta):
-        pujas=[]
+        html = self.__download_html(urlSubasta)
+        bs = BeautifulSoup(html, 'html.parser')
+        pujas=[]        
+        
+        if bs.find("div", attrs={"class":"bloqueSubasta"}).find("span", attrs={"class":"destaca"}) != None:
+            print("aaa")
+            pujas = [{"Lote": "0", "Puja": bs.find("div", attrs={"class":"bloqueSubasta"}).find("span", attrs={"class":"destaca"}).text}]
+        elif bs.find("div", attrs={"class":"bloqueSubasta"}).find("p").text == "La subasta no ha recibido pujas.":
+            pujas = [{"Lote": "0", "Puja":"0"}]
+        elif bs.find("table", attrs={"title":"Lista de pujas"}) != None:
+            trs = bs.find("table", attrs={"title":"Lista de pujas"}).find("tbody").find_all("tr")
+            for tr in trs:    
+                puja = {"Lote":tr.find_all("td")[0].text,"Puja":tr.find_all("td")[1].text}
+                pujas.append(puja)    
         return pujas
         
     def __scrape_Lote(self,urlSubasta):
-        lote=[]
-        return lote
-    
-sub = SubastaBOEScraper()
-sub.setFilter(resetFilter=True, provincia="48")
-sub.getSubastaLink()
-
-sub.__scrape_InfoGeneral(urlSubasta=sub.listSubastas[1]["link"])
-sub.scrape_InfoGeneral(urlSubasta="https://subastas.boe.es/detalleSubasta.php?idSub=SUB-JA-2019-122911&ver=2&idBus=_bU05dlRNVnU0U0NtdjBCSzNnQ09DbHhwVzd4ME01bTEzS0IzajY2akRvRSsrQ0ZmQllYU3BUWGhVSWd1NU1NWnZ1bnlxNTFrbVNnTzI3SGlWOENtZkZUVWJ0bVFhY2QwbVh0cG1pdGpGWUYyekRFWmplT0xCS0dQZmhld25wajRVeUlnS21mMTlkdkF5d1Fyano0RG0zLzF3UDVtOG5zL0NveE15NmN0RUdGNlFYN2IwNTlJMlFyMU1odUpmU01UejRmc0VPZTVBMWhmUTRDeTBJY2phZWQzUXNQb1hab1JsdWMrVzVUV05PNjhQV1RPc2J5M2RJVi9Pd0p5NGk1dDRSRmFIRlJBbjk0RHFyVE40VnNTdEF6NUJiams2UHVtekNyOXh0S2xaSWM9&idLote=&numPagBus=")
-b = {}
-b["aaa"]="bbb"
-
-
-###Test
-http = urllib3.PoolManager(cert_reqs='CERT_REQUIRED',
-                           ca_certs=certifi.where())
-response = http.request('GET',sub.listSubastas[1]["link"])
+        html = self.__download_html(urlSubasta)
+        bs = BeautifulSoup(html, 'html.parser')
+        lotes=[]
         
-bs = BeautifulSoup(response.data, 'html.parser')
+        lis=bs.find("ul", attrs={"class":"navlistver2"}).find_all("li")
+        
+        for li in lis:
+            url = "https://subastas.boe.es"+li.find("a", href=True)["href"][1:]
+            nLote=li.find("a", href=True).text
+            lote={"Lote":nLote}
+            
+            html = self.__download_html(url)
+            bs = BeautifulSoup(html, 'html.parser')
+            
+            tables=bs.find_all("table", attrs={"class":"datosSubastas"})
+            for table in tables:
+                trs = table.find_all("tr")
+                for tr in trs:    
+                    lote[tr.find("th").text]=tr.find("td").text.strip("\n")
+            lotes.append(lote)       
+        
+        return lotes
+    
+    def __scrape_execute(self,argument, url):
+        print(argument)
+        if argument=="Información general": 
+            return self.__scrape_StructGeneral(url)
+        elif argument=="Autoridad gestora": 
+            return {"autorida":self.__scrape_StructGeneral(url)}
+        elif argument=="Bienes": 
+            return {"bienes":self.__scrape_StructGeneral(url)}
+        elif argument=="Acreedor": 
+            return {"acreedor":self.__scrape_StructGeneral(url)}
+        elif argument=="Administrador concursal": 
+            return {"administrador":self.__scrape_StructGeneral(url)}
+        elif argument=="Pujas":
+            return {"Pujas": self.__scrape_Pujas(url)}
+        elif argument=="Lotes":
+            return  {"Lotes": self.__scrape_Lote(url)}
+        else:
+            return None
+    
+    def scrape(self):
+        self.getSubastaLink()
+        self.__evaluate_complexity()
+        url = ""
+        
+        
+        for sub in self.listSubastas[4:5]:
+            html = self.__download_html(sub["link"],sleep=np.random.ranf()*5)
+            bs = BeautifulSoup(html, 'html.parser')
+            
+            lis = bs.find(attrs={"class":"navlist"}).find_all("li")
+            for li in lis:
+                url="https://subastas.boe.es"+li.find("a", href=True)["href"][1:]
+                self.listSubastas[self.listSubastas.index(sub)].update(self.__scrape_execute(argument=li.text.strip("\n"),url=url))
+        
 
-infoGeneral={}
-
-a = bs.find("table", attrs={"class":"datosSubastas"}).find_all("tr")
-a.find_all("th")
-a.find_all("td")[1].text
-
+#sub = SubastaBOEScraper()
+#sub.setFilter(resetFilter=True, provincia="48")
+#sub.getSubastaLink()
+#sub.scrape()
