@@ -13,6 +13,7 @@ La actividad ha sido realizada de manera conjunta por **Francisco Javier Isla Pa
 
 * **src/main.py**: punto de entrada al programa. Inicia el proceso de scraping.
 * **src/scraper.py**: contiene la implementación de la clase _SubastaBOEScraper_ cuyos métodos generan el conjunto de datos a partir de la web _https://subastas.boe.es/_.
+* **download_html.py**: contiene la implementación de la clase _download_html.py_ que permite descargar los html de forma visible, o en caso de ser necesario con user_agent y proxys aleatorios.
 
 ## Recursos
 
