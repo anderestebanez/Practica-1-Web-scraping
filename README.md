@@ -7,7 +7,7 @@ El resultado es un _dataset_ con información sobre las subastas judiciales y ad
 
 ## Miembros del equipo
 
-La actividad ha sido realizada de manera conjunta por **Francisco Javier Isla Pardina** y **Ander Estebanez Centeno**.
+La actividad ha sido realizada de manera individual por **Ander Estebanez Centeno**.
 
 ## Ficheros del código fuente
 
