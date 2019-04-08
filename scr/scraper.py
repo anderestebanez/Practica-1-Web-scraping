@@ -13,21 +13,20 @@ Created on Tue Apr  2 00:16:50 2019
 #' @return Get a data.frame with the information of all the auctions.
 
 import urllib3
-import re
 import time
 import certifi
 from bs4 import BeautifulSoup
-import pandas as pd
+#import pandas as pd
 import numpy as np
-from dateutil import parser
+from scr.download_html import download_html
+#from dateutil import parser
 #from reason_classifier import ReasonClassifier
 
 
 
 class SubastaBOEScraper():
     
-    
-    def __init__(self):
+    def __init__(self, http=None):
         self.url = ""
         self.data = []
         self.estado=""
@@ -36,6 +35,11 @@ class SubastaBOEScraper():
         self.fchFin = ""
         self.fchIni = ""
         self.listSubastas = []
+        if http==None:
+            self.http=download_html()
+        else:
+            self.http=http
+            
   
     # estado={"Cualquiera":"", "Prox. apertura":"PU","Celebrándose":"EJ","Suspendida":"SU","Cancelada":"CA","Concluida en Portal de Subastas":"PC","Finalizada por Autoridad Gestora":"FS"}
     # tipo_Bien={"Todos":"", "Vivienda":"501", "Local comercial":"502", "Garaje":"503", "Trastero":"504", "Nave industrial":"505", "Solar":"506", "Finca rústica":"507", "Otros":"599"}
@@ -101,9 +105,12 @@ class SubastaBOEScraper():
         
         if listSubastas == None:
             listSubastas=[]
-            
-        html = self.__download_html(url)
+        
+        self.http.setURL(url)
+        self.http.setTiempo(1)
+        html = self.http.getHtml()
         bs = BeautifulSoup(html, 'html.parser')
+        
         lis = bs.find_all(attrs={"class":"resultado-busqueda"})
         for li in lis:
             p = li.find_all("p")
@@ -123,20 +130,41 @@ class SubastaBOEScraper():
             listSubastas.append(subastaLink)
         
         pagSig = bs.find(attrs={"class":"pagSig"})
-    
+        
         if pagSig is not None:
             self.getSubastaLink(url="https://subastas.boe.es/"+pagSig.find_parent("a", href=True)["href"],listSubastas=listSubastas) 
         
         self.listSubastas = listSubastas
         return len(self.listSubastas)
         
+    def setListSubasta(self, listSubastas):
+        subastas=[]
+        
+        for subasta in listSubastas:
+            if "codSubasta" in subasta and "link" in subasta and "estado" in subasta:
+                subastas.append(subasta)
+        
+        print("Del total de  %d subastas, %d han sido descartados por no disponer de información básica"%(len(listSubastas), len(listSubastas)-len(subastas)))
+        self.listSubastas=subastas
+    
     def __evaluate_complexity(self):
-        print("There are %d links. The expected time is %d seconds"%(len(self.listSubastas),len(self.listSubastas)*2.5))
+        sec_tot = len(self.listSubastas)*2.5
+        horas = int(sec_tot/(60*60))
+        minu = int(sec_tot/60)-horas*60
+        sec = sec_tot-minu*60-horas*60*60
+        
+        print("There are %d links. The expected time is %d:%d:%d"%(len(self.listSubastas),horas,minu,sec))
         return None
 
     #Este código scrapear estructuras estandars: InforGeneral, Autoridades, Administrador concursal y Bienes
     def __scrape_StructGeneral(self, urlSubasta):
-        html = self.__download_html(urlSubasta)
+        self.http.setURL(urlSubasta)
+        self.http.setTiempo(0)
+        html = self.http.getHtml()
+        
+        if html==None:
+            return {"Scrap":False}
+        
         bs = BeautifulSoup(html, 'html.parser')
         
         infoGeneral={}
@@ -147,12 +175,17 @@ class SubastaBOEScraper():
         return infoGeneral
     
     def __scrape_Pujas(self,urlSubasta):
-        html = self.__download_html(urlSubasta)
+        self.http.setURL(urlSubasta)
+        self.http.setTiempo(0)
+        html = self.http.getHtml()
+        if html==None:
+            return {"Scrap":False}
+        
         bs = BeautifulSoup(html, 'html.parser')
+        
         pujas=[]        
         
         if bs.find("div", attrs={"class":"bloqueSubasta"}).find("span", attrs={"class":"destaca"}) != None:
-            print("aaa")
             pujas = [{"Lote": "0", "Puja": bs.find("div", attrs={"class":"bloqueSubasta"}).find("span", attrs={"class":"destaca"}).text}]
         elif bs.find("div", attrs={"class":"bloqueSubasta"}).find("p").text == "La subasta no ha recibido pujas.":
             pujas = [{"Lote": "0", "Puja":"0"}]
@@ -164,8 +197,13 @@ class SubastaBOEScraper():
         return pujas
         
     def __scrape_Lote(self,urlSubasta):
-        html = self.__download_html(urlSubasta)
+        self.http.setURL(urlSubasta)
+        self.http.setTiempo(0.5)
+        html = self.http.getHtml()
+        if html==None:
+            return {"Scrap":False}
         bs = BeautifulSoup(html, 'html.parser')
+        
         lotes=[]
         
         lis=bs.find("ul", attrs={"class":"navlistver2"}).find_all("li")
@@ -175,7 +213,12 @@ class SubastaBOEScraper():
             nLote=li.find("a", href=True).text
             lote={"Lote":nLote}
             
-            html = self.__download_html(url)
+            self.http.setURL(url)
+            self.http.setTiempo(0)
+            html = self.http.getHtml()
+            if html==None:
+                return {"Scrap":False}
+            
             bs = BeautifulSoup(html, 'html.parser')
             
             tables=bs.find_all("table", attrs={"class":"datosSubastas"})
@@ -187,8 +230,29 @@ class SubastaBOEScraper():
         
         return lotes
     
+        
+    def __scrape_Interesados(self,urlSubasta):
+        self.http.setURL(urlSubasta)
+        self.http.setTiempo(0.5)
+        html = self.http.getHtml()        
+        if html==None:
+            return {"Scrap":False}
+        bs = BeautifulSoup(html, 'html.parser')
+        
+        interesados=[]
+        
+        tables=bs.find_all("table", attrs={"class":"datosSubastas"})
+        for table in tables:
+            interesado = {}
+            trs = table.find_all("tr")
+            for tr in trs:    
+                interesado[tr.find("th").text]=tr.find("td").text.strip("\n")
+            interesados.append(interesado)       
+    
+        return interesados
+    
     def __scrape_execute(self,argument, url):
-        print(argument)
+        
         if argument=="Información general": 
             return self.__scrape_StructGeneral(url)
         elif argument=="Autoridad gestora": 
@@ -203,26 +267,43 @@ class SubastaBOEScraper():
             return {"Pujas": self.__scrape_Pujas(url)}
         elif argument=="Lotes":
             return  {"Lotes": self.__scrape_Lote(url)}
+        elif argument=="Interesados":
+            return  {"Interesados": self.__scrape_Interesados(url)}
         else:
             return None
     
     def scrape(self):
-        self.getSubastaLink()
+        if self.listSubastas==None:
+            print("No hay ninguna subasta a scrapear. Recuerda ejecutar getListSubasta o setListSubasta")
+            return None
         self.__evaluate_complexity()
         url = ""
         
+        tot_Scrap = len(self.listSubastas)
+        pos_Scrap = 0
         
-        for sub in self.listSubastas[4:5]:
-            html = self.__download_html(sub["link"],sleep=np.random.ranf()*5)
-            bs = BeautifulSoup(html, 'html.parser')
-            
-            lis = bs.find(attrs={"class":"navlist"}).find_all("li")
-            for li in lis:
-                url="https://subastas.boe.es"+li.find("a", href=True)["href"][1:]
-                self.listSubastas[self.listSubastas.index(sub)].update(self.__scrape_execute(argument=li.text.strip("\n"),url=url))
-        
+        print("Completado %d%%"% (0))
 
-#sub = SubastaBOEScraper()
-#sub.setFilter(resetFilter=True, provincia="48")
-#sub.getSubastaLink()
-#sub.scrape()
+        for sub in self.listSubastas:
+            rand = np.random.ranf()
+            if rand > 0.95:
+                time.sleep(rand*5)
+            
+            self.http.setURL(sub["link"])
+            self.http.setTiempo(2)
+            html = self.http.getHtml()
+            if html==None:
+                self.listSubastas[self.listSubastas.index(sub)]["Scrap"]=False
+            else:
+                bs = BeautifulSoup(html, 'html.parser')
+                
+                lis = bs.find(attrs={"class":"navlist"}).find_all("li")
+                for li in lis:
+                    url="https://subastas.boe.es"+li.find("a", href=True)["href"][1:]
+                    self.listSubastas[self.listSubastas.index(sub)]["Scrap"]=True
+                    self.listSubastas[self.listSubastas.index(sub)].update(self.__scrape_execute(argument=li.text.strip("\n"),url=url))
+                                    
+            pos_Scrap = pos_Scrap + 1
+            if int(100*(pos_Scrap-1)/tot_Scrap) != int(100*pos_Scrap/tot_Scrap):
+                print("Completado %d%%"%int(100*pos_Scrap/tot_Scrap))
+        
