@@ -4,10 +4,10 @@ Created on Mon Apr  8 14:04:14 2019
 
 @author: Ander Estebanez Centeno
 """
-import urllib3
+#import urllib3
 import time
 import numpy as np
-import certifi
+#import certifi
 import requests
 
 class download_html():
@@ -62,10 +62,11 @@ class download_html():
     def getHtml(self):
         ''' Descarga el fichero HTML de la url de la configuración. Si está en incognito se aplicará un usar_agent y proxy aleatorio de la lista configurada, sino usara el user_agent y proxy por defecto.
         '''
-        
-        
-        if self.incognito==False: # Aplica una forma de descarga diferente según si es incognito o no
-            response = requests.get(self.url())
+        print(self.url)
+        # Aplica una forma de descarga diferente según si es incognito o no
+        if self.incognito==False: 
+            response = requests.get(self.url)
+            
             #http = urllib3.PoolManager(cert_reqs='CERT_REQUIRED',
             #                           ca_certs=certifi.where())
             #response = http.request('GET',self.url)
@@ -100,11 +101,14 @@ class download_html():
                     descargado=True
                 except Exception as e:
                     print("Intento: %d - Error de conexión: %s"%(i,type(e).__name__))
-                    print("Proxy: %s \n Descripción: %s"%(proxy,e.args[:50]))
+                    print("Proxy: %s \n Descripción: %s"%(proxy,e.args[-20:]))
                     nProxy+=1
                     if nProxy>=len(self.proxys):
                         nProxy=0                        
                     i+=1
+                    if i>9:
+                        print("Error: Se ha superado el número máximo de intentos de conexión")
+                        return None
 
         # En caso de que no haya respuesta 200 entonces se sale
         if response.status_code==200:
