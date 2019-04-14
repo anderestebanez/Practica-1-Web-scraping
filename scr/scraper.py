@@ -18,6 +18,7 @@ import certifi
 from bs4 import BeautifulSoup
 import numpy as np
 from scr.download_html import download_html
+import locale
 
 class SubastaBOEScraper():
     
@@ -42,6 +43,7 @@ class SubastaBOEScraper():
         else:
             self.http=http
             
+        locale.setlocale(locale.LC_ALL,"de_DE")            
   
     # estado={"Cualquiera":"", "Prox. apertura":"PU","Celebrándose":"EJ","Suspendida":"SU","Cancelada":"CA","Concluida en Portal de Subastas":"PC","Finalizada por Autoridad Gestora":"FS"}
     # tipo_Bien={"Todos":"", "Vivienda":"501", "Local comercial":"502", "Garaje":"503", "Trastero":"504", "Nave industrial":"505", "Solar":"506", "Finca rústica":"507", "Otros":"599"}
@@ -235,12 +237,15 @@ class SubastaBOEScraper():
         bs = BeautifulSoup(html, 'html.parser')
         
         pujas=[]        
+        totPuja=0
         
         # Se pueden dar 3 casos: con puja máxima, con pujas máximas por lote o sin pujas.
         if bs.find("div", attrs={"class":"bloqueSubasta"})==None:
             pujas = [{"Lote": "0", "Puja":"0"}]
         elif bs.find("div", attrs={"class":"bloqueSubasta"}).find("span", attrs={"class":"destaca"}) != None:
             pujas = [{"Lote": "0", "Puja": bs.find("div", attrs={"class":"bloqueSubasta"}).find("span", attrs={"class":"destaca"}).text}]
+            if pujas[0]["Puja"][:1].isnumeric():
+                totPuja = locale.atof(pujas[0]["Puja"].strip(" €"))
         elif bs.find("div", attrs={"class":"bloqueSubasta"}).find("p").text == "La subasta no ha recibido pujas.":
             pujas = [{"Lote": "0", "Puja":"0"}]
         elif bs.find("table", attrs={"title":"Lista de pujas"}) != None:
@@ -248,7 +253,9 @@ class SubastaBOEScraper():
             for tr in trs:    
                 puja = {"Lote":tr.find_all("td")[0].text,"Puja":tr.find_all("td")[1].text}
                 pujas.append(puja)    
-        return pujas
+                if puja["Puja"][:1].isnumeric():
+                    totPuja = locale.atof(puja["Puja"].strip(" €"))
+        return {'pujas':pujas,'totPuja':totPuja}
         
     def __scrape_Lote(self,urlSubasta):
         ''' Código que permite scrapear la pestaña de lotes. 
@@ -256,7 +263,7 @@ class SubastaBOEScraper():
         Keyword arguments:
             urlSubasta -- URL que a scrapear           
         '''
-        
+
         self.http.setURL(urlSubasta)
         self.http.setTiempo(0.5)
         html = self.http.getHtml()
@@ -264,7 +271,13 @@ class SubastaBOEScraper():
             return {"Scrap":False}
         bs = BeautifulSoup(html, 'html.parser')
         
-        lotes=[]
+        
+        agrLotes={'Valor subasta':0,
+                  'Tramos entre pujas':0,
+                  'Tasación':0,
+                  'Importe del depósito':0,
+                  'Puja mínima':0,
+                  'lotes':[]   }
         
         # Cada subasta puede tener más de un lote, cada uno en una url diferente.
         lis=bs.find("ul", attrs={"class":"navlistver2"}).find_all("li")
@@ -289,9 +302,27 @@ class SubastaBOEScraper():
                 trs = table.find_all("tr")
                 for tr in trs:    
                     lote[tr.find("th").text]=tr.find("td").text.strip("\n").replace(";",",").replace("\n"," ")
-            lotes.append(lote)       
+            agrLotes['lotes'].append(lote)
+            
+            #!!Pendiente¡¡ convertir 
+            if 'Valor Subasta' in lote.keys():
+                agrLotes['Valor subasta']+= locale.atof(lote['Valor Subasta'].strip(" €"))
+            if 'Tramos entre pujas' in lote.keys():
+                if lote['Tramos entre pujas'][:1].isnumeric(): 
+                    agrLotes['Tramos entre pujas']+= locale.atof(lote['Tramos entre pujas'].strip(" €"))
+            if 'Valor de tasación' in lote.keys():
+                agrLotes['Tasación']+= locale.atof(lote['Valor de tasación'].strip(" €"))
+            if 'Importe del depósito' in lote.keys():
+                agrLotes['Importe del depósito']+= locale.atof(lote['Importe del depósito'].strip(" €"))
+            if 'Puja mínima' in lote.keys():
+                if lote['Puja mínima'][:1].isnumeric():
+                    agrLotes['Puja mínima']+= locale.atof(lote['Puja mínima'].strip(" €"))
         
-        return lotes
+        agrLotes.update({'Tramos entre pujas': agrLotes['Tramos entre pujas']/len(lis)})
+        agrLotes.update({'Importe del depósito': agrLotes['Importe del depósito']/len(lis)})
+        agrLotes.update({'Puja mínima': agrLotes['Puja mínima']/len(lis)})
+        
+        return agrLotes
     
         
     def __scrape_Interesados(self,urlSubasta):
@@ -318,7 +349,7 @@ class SubastaBOEScraper():
                 interesado[tr.find("th").text]=tr.find("td").text.strip("\n")
             interesados.append(interesado)       
     
-        return interesados
+        return {'interesados':interesados, 'numInteresados':len(tables)}
         
     def __scrape_Acreedores(self,urlSubasta):
         ''' Código que permite scrapear la pestaña de acredores. 
@@ -343,10 +374,10 @@ class SubastaBOEScraper():
             for tr in trs:    
                 acreedor[tr.find("th").text]=tr.find("td").text.strip("\n").replace(";",",")
             acreedores.append(acreedor)       
-    
-        return acreedores
+
+        return {'acreedores':acreedores, 'numAcreedores':len(tables)}
         
-    def __scrape_execute(self,argument, url):
+    def __scrape_execute(self,argument, url, index):
         ''' Código que permite parametrizar el tratamiento que se tiene que hacer
         según el nombre de la pestaña de la url principal. 
         
@@ -360,29 +391,43 @@ class SubastaBOEScraper():
         elif argument=="Autoridad gestora": 
             return self.__scrape_StructGeneral(url,prefij="aut_")
         elif argument=="Bienes": 
-            bienes={"Lote":"Lote 1"}
+            # Cuando es un bien, es como una subasta de un solo lote
+            #print(self.listSubastas)
+            bienes={"Lote":"Lote 1",
+                    'Valor subasta': self.listSubastas[index]['Valor subasta'],
+                    'Tramos entre pujas': self.listSubastas[index]['Tramos entre pujas'],
+                    'Valor de tasación':self.listSubastas[index]['Tasación'],
+                    'Importe del depósito':self.listSubastas[index]['Importe del depósito'],
+                    'Puja mínima':self.listSubastas[index]['Puja mínima']
+                    }
             bienes.update(self.__scrape_StructGeneral(url))
-            return {"lotes":[bienes]}
+            
+            return {"Lotes":0,
+                    'lotes':[bienes]}
+                    
         elif argument in ["Acreedores","Acreedor","Acreedor privilegiado", "Acreedores privilegiados"]: 
             acreedores=self.__scrape_Acreedores(url)
-            for acreedor in acreedores:
-                if argument in ["Acreedor privilegiado","Acreedores privilegiados"]:
+            if argument in ["Acreedor privilegiado","Acreedores privilegiados"]:
+                acreedores["acreedorPrivilegiado"]=True
+                for acreedor in acreedores['acreedores']:                
                     acreedor.update({"tipoPrivilegiado":True})
-                else:
+            else:
+                acreedores["acreedorPrivilegiado"]=False
+                for acreedor in acreedores['acreedores']:                
                     acreedor.update({"tipoPrivilegiado":False})
-            return {"acreedores":acreedores}
+            return acreedores
         elif argument=="Administrador concursal": 
             return self.__scrape_StructGeneral(url,prefij="adm_")
         elif argument=="Pujas":
-            return {"pujas": self.__scrape_Pujas(url)}
+            return self.__scrape_Pujas(url)
         elif argument=="Lotes":
-            return  {"lotes": self.__scrape_Lote(url)}
+            return  self.__scrape_Lote(url)
         elif argument in ["Interesados","Interesado"]:
-            return  {"interesados": self.__scrape_Interesados(url)}
+            return  self.__scrape_Interesados(url)
         else:
             return {"Error":"Not found argumento:"+argument, "Scrap":False}
     
-    def scrape(self):
+    def scrape(self, soloPendienteScrap=False):
         ''' Scrapea todas las subastas de la lista de subastas. 
         '''
         if self.listSubastas==None:
@@ -395,10 +440,13 @@ class SubastaBOEScraper():
         tot_Scrap = len(self.listSubastas)
         pos_Scrap = 0
         
-        print("%s: Completado %d%%"% (time.strftime("%H:%M:%S",time.localtime()) 0))
+        print("%s: Completado %d%%"%(time.strftime("%H:%M:%S",time.localtime()), 0))
 
         for sub in self.listSubastas:
-            self.listSubastas[self.listSubastas.index(sub)]["Scrap"]=True
+            if soloPendienteScrap==True and sub.get("Scrap")==True:
+                pos_Scrap = pos_Scrap + 1 
+                continue
+            sub["Scrap"]=True
                     
             rand = np.random.ranf()
             if rand > 0.95:
@@ -408,14 +456,16 @@ class SubastaBOEScraper():
             self.http.setTiempo(2)
             html = self.http.getHtml()
             if html==None:  #  Si devuelve no se sale del proceso marcando la subasta como no scrapeada
-                self.listSubastas[self.listSubastas.index(sub)]["Scrap"]=False
+                sub["Scrap"]=False
             else:
                 bs = BeautifulSoup(html, 'html.parser')
                 
                 lis = bs.find(attrs={"class":"navlist"}).find_all("li")
                 for li in lis:
                     url="https://subastas.boe.es"+li.find("a", href=True)["href"][1:]
-                    self.listSubastas[self.listSubastas.index(sub)].update(self.__scrape_execute(argument=li.text.strip("\n"),url=url))
+                    sub.update(self.__scrape_execute(argument=li.text.strip("\n"),url=url,index=self.listSubastas.index(sub)))
+                    if sub["Scrap"]==False:
+                        continue
                                     
             pos_Scrap = pos_Scrap + 1
             if int(100*(pos_Scrap-1)/tot_Scrap) != int(100*pos_Scrap/tot_Scrap):
@@ -446,7 +496,16 @@ class SubastaBOEScraper():
         print("Num errors: %d - Num pendiente scrap: %d \n Los index a revisar son: %s"%(i, j, index.__str__()))
 
     def data2csv(self, path, dictFilename={}):        
+        ''' El siguiente método extrae el diccionario con todos los campos disponibles a csv.
+        Se generará un csv diferenciado para las subastas, lotes, pujas, interesados y acreedores.
         
+        Keyword arguments:
+            path -- Directorio en el que guardar los csv.           
+            dictFilename -- Permite definir el nombre de algun csv de salida. El formato del
+            parametro tiene que ser diccionario y con nombres específicos.        
+        '''
+        
+        # COmprobar que los campos de entrada son correctos
         filenames={"fileGeneral":"infoSubastas.csv",
                    "fileLotes":"lotesSubastas.csv",
                    "fileInteresados":"interesadosSubastas.csv",
@@ -470,6 +529,7 @@ class SubastaBOEScraper():
                     filenames.update(dictFilename)
                     stay=False
         
+        # Indentificar todos los campos a extraer
         keyGeneral=[]
         keyLotes=["codSubasta"]
         keyInteresados=["codSubasta"]
@@ -479,7 +539,7 @@ class SubastaBOEScraper():
         for it in self.listSubastas:
             keyGeneral.extend(it.keys())    
             keyGeneral=list(set(keyGeneral))
-            if "lotes" in it.keys() and it['lotes'] != "Sin lotes":
+            if "lotes" in it.keys() and it['Lotes'] != 0:
                 for lote in it['lotes']:
                     keyLotes.extend(lote.keys())
                     keyLotes=list(set(keyLotes))
@@ -522,7 +582,7 @@ class SubastaBOEScraper():
                         
         filePujas.write('codSubasta;')
         filePujas.write('lote;')
-        for key in [x for x in keyPujas if x not in ['codSubasta','Lotes']]:
+        for key in [x for x in keyPujas if x not in ['codSubasta','Lote']]:
             filePujas.write(key + ";")
         filePujas.write("\n")
         
@@ -534,7 +594,9 @@ class SubastaBOEScraper():
                     
         #  Se escriben los valores al CSV
         for it in self.listSubastas:
-            fileGeneral.write(it['codSubasta'] + ";")            
+            codSubasta=it['Identificador']
+            fileGeneral.write(codSubasta + ";")            
+            
             for key in [x for x in keyGeneral if x not in ['codSubasta', 'lotes', 'interesados', 'acreedores', 'pujas']]:
                 if key in it.keys():
                     fileGeneral.write(str(it[key]) + ";")    
@@ -544,7 +606,7 @@ class SubastaBOEScraper():
             
             if "lotes" in it.keys():
                 for lote in it['lotes']:
-                    fileLotes.write(it['codSubasta'] + ";")
+                    fileLotes.write(codSubasta + ";")
                     fileLotes.write(lote['Lote'] + ";")
                     for key in [x for x in keyLotes if x not in ['codSubasta', 'Lote']]:
                         if key in lote.keys():
@@ -555,7 +617,7 @@ class SubastaBOEScraper():
                         
             if "interesados" in it.keys():
                 for interesado in it['interesados']:
-                    fileInteresados.write(it['codSubasta'] + ";")
+                    fileInteresados.write(codSubasta + ";")
                     for key in [x for x in keyInteresados if x not in ['codSubasta']]:
                         if key in interesado.keys():
                             fileInteresados.write(str(interesado[key]) + ";")
@@ -565,9 +627,9 @@ class SubastaBOEScraper():
                         
             if "pujas" in it.keys():
                 for puja in it['pujas']:
-                    filePujas.write(it['codSubasta'] + ";")
+                    filePujas.write(codSubasta + ";")
                     filePujas.write(puja['Lote'] + ";")
-                    for key in [x for x in keyPujas if x not in ['codSubasta','Lotes']]:
+                    for key in [x for x in keyPujas if x not in ['codSubasta','Lote']]:
                         if key in puja.keys():
                             filePujas.write(str(puja[key]) + ";")
                         else:
@@ -576,7 +638,7 @@ class SubastaBOEScraper():
             
             if "acreedores" in it.keys():
                 for acreedor in it['acreedores']:
-                    fileAcreedores.write(it['codSubasta'] + ";")
+                    fileAcreedores.write(codSubasta + ";")
                     for key in [x for x in keyAcreedores if x not in ['codSubasta']]:
                         if key in acreedor.keys():                            
                             fileAcreedores.write(str(acreedor[key]) + ";")
@@ -588,3 +650,4 @@ class SubastaBOEScraper():
         fileInteresados.close
         fileAcreedores.close
         filePujas.close
+ 
