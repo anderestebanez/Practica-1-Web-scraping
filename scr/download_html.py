@@ -62,7 +62,6 @@ class download_html():
     def getHtml(self):
         ''' Descarga el fichero HTML de la url de la configuración. Si está en incognito se aplicará un usar_agent y proxy aleatorio de la lista configurada, sino usara el user_agent y proxy por defecto.
         '''
-        print(self.url)
         # Aplica una forma de descarga diferente según si es incognito o no
         if self.incognito==False: 
             response = requests.get(self.url)

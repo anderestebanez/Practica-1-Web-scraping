@@ -5,13 +5,6 @@ Created on Tue Apr  2 00:16:50 2019
 @author: Ander Estebanez Centeno
 """
 
-#' @param estado The situation of the auction
-#' @param tipo_Bien Type of property
-#' @param provincia Province
-#' @param fchFin Vector with the two date between the auction must finish 
-#' @param fchIni Vector with the two date between the auction must start
-#' @return Get a data.frame with the information of all the auctions.
-
 import urllib3
 import time
 import certifi
@@ -429,7 +422,11 @@ class SubastaBOEScraper():
     
     def scrape(self, soloPendienteScrap=False):
         ''' Scrapea todas las subastas de la lista de subastas. 
+        
+        Keyword arguments:
+            soloPendienteScrap -- Indica si solo se quieren scrapear las subastas que están pendientes de scrapear.
         '''
+        
         if self.listSubastas==None:
             print("No hay ninguna subasta a scrapear. Recuerda ejecutar getListSubasta o setListSubasta")
             return None
@@ -594,7 +591,11 @@ class SubastaBOEScraper():
                     
         #  Se escriben los valores al CSV
         for it in self.listSubastas:
-            codSubasta=it['Identificador']
+            if 'Identificador' in it.keys():
+                codSubasta=it['Identificador']
+            else:
+                codSubasta=it['codSubasta']
+                
             fileGeneral.write(codSubasta + ";")            
             
             for key in [x for x in keyGeneral if x not in ['codSubasta', 'lotes', 'interesados', 'acreedores', 'pujas']]:
@@ -610,7 +611,12 @@ class SubastaBOEScraper():
                     fileLotes.write(lote['Lote'] + ";")
                     for key in [x for x in keyLotes if x not in ['codSubasta', 'Lote']]:
                         if key in lote.keys():
-                            fileLotes.write(str(lote[key]) + ";")
+                            try:
+                                fileLotes.write(str(lote[key]).replace(";","-").replace("\r"," ") + ";")
+                            except Exception as e:
+                                fileLotes.write(";")
+                                print("Error! Sub: %s - Lote: %s \n %s"%(codSubasta,lote['Lote'],e.args))
+                                continue
                         else:
                             fileLotes.write(";")
                     fileLotes.write("\n")

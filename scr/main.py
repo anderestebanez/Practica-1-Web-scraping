@@ -23,7 +23,7 @@ proxys = proxys.to_dict(orient="records")
 
 #  Se deine el dataset de salidaa
 output_file = "dataset.csv"
-
+ 
 #  Se iniciala  clase
 http = download_html(incognito=True, proxys=proxys, agents=agents,rSeed=120)
 sub = SubastaBOEScraper(http=http)
@@ -42,25 +42,19 @@ sub.getSubastaLink(listSubastas=sub.listSubastas)
 sub.setFilter(provincia="25") #Lleida
 sub.getSubastaLink(listSubastas=sub.listSubastas)
 
-lsCat = sub.listSubastas
 len(sub.listSubastas)
  
-pickle.dump(sub.listSubastas,open(path+'/csv/20191104_listSubastas',"wb"))
-sub.setListSubasta(sub.listSubastas[0:200])
-sub.scrape()
-pickle.dump(sub.listSubastas,open(path+'/csv/20191104_listSubastas_scrape',"wb"))
-
-data = pickle.load(open(path+'/csv/20191104_listSubastas',"rb"))
-
-
+pickle.dump(sub.listSubastas,open(path+'/csv/20190414_listSubastas',"wb"))
+sub.scrape(True)
 save=sub.listSubastas
-len(save)
-sub.data2csv(path+"/csv")
-sub.setListSubasta(sub.listSubastas)
-sub.scrape()
-sub.listSubastas[18:19]
+pickle.dump(sub.listSubastas,open(path+'/csv/20190414_listSubastas_scrape',"wb"))
 
-a='Datos registrales: Finca 3024 de ALP, insctita en el registro propiedad Puigcerdà, Tomo 601, libro 39, folio 29. Finca urbana: entidad nº64 de edificio "Orbis Holidays" compuesto de dos cuerpos, letras A y B sito en Super Molina municipio de Alp: cuarto trasero en planta 2ª alta, cuerpo B; de unos 13 metros cuadrados aprox. Linda Norte, entidad nº65 de la misma planta;  Suy y Este vuelo de terreno común; y Oeste, escalera y pasillo de la planta en que està situado, cuota:  10 centèsimes por ciento (0.10%), respecto del total del inmueble que es finca nº2123, al folio 37 del libro 38º de Alp, tomo 600 del archivo. La finca no està coordinada gráficamente en el catastro'
-a[:a.find("\n")]
-a.strip("\n")
-a.replace(";",",")
+sub.getErrors()
+sub.data2csv(path+"/csv")
+
+#data = pickle.load(open(path+'/csv/20191104_listSubastas',"rb"))
+
+
+#Pruebas: revisar una subasta
+#[sub.listSubastas.index(x) for x in sub.listSubastas if x.get('Identificador')=="SUB-AT-2019-19R0886002005"]
+#sub.listSubastas[291]
