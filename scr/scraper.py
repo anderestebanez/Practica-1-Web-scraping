@@ -92,7 +92,9 @@ class SubastaBOEScraper():
                             'campo%5B12%5D=SUBASTA.NUM_CUENTA_EXPEDIENTE_4&dato%5B12%5D=&',
                             'campo%5B13%5D=SUBASTA.NUM_CUENTA_EXPEDIENTE_5&dato%5B13%5D=&',
                             'campo%5B14%5D=SUBASTA.ID_SUBASTA_BUSCAR&dato%5B14%5D=&',
-                            'campo%5B15%5D=SUBASTA.FECHA_FIN_YMD&dato%5B15%5D%5B0%5D=&dato%5B15%5D%5B1%5D=&',
+                            'campo%5B15%5D=SUBASTA.FECHA_FIN_YMD&',
+                            'dato%5B15%5D%5B0%5D=',self.fchIni,'&',
+                            'dato%5B15%5D%5B1%5D=',self.fchFin,'&',
                             'campo%5B16%5D=SUBASTA.FECHA_INICIO_YMD&dato%5B16%5D%5B0%5D=&dato%5B16%5D%5B1%5D=&',
                             'page_hits=200&sort_field%5B0%5D=SUBASTA.FECHA_FIN_YMD&sort_order%5B0%5D=desc&sort_field%5B1%5D=SUBASTA.FECHA_FIN_YMD&sort_order%5B1%5D=asc&sort_field%5B2%5D=SUBASTA.HORA_FIN&sort_order%5B2%5D=asc&accion=Buscar'])
 
@@ -109,8 +111,8 @@ class SubastaBOEScraper():
                            ca_certs=certifi.where())
         response = http.request('GET',url)
         if response.status==200:
-            return response.data
             time.sleep(sleep)
+            return response.data
         else:
             return None
         
@@ -135,28 +137,29 @@ class SubastaBOEScraper():
         lis = bs.find_all(attrs={"class":"resultado-busqueda"})
         for li in lis:
             p = li.find_all("p")
-            subastaLink = {"codSubasta":p[0].text.strip(' \n'),
-                           "autoridad":p[1].text.strip(' \n')}
+            subastaLink = {"codSubasta":li.find("h3").text.strip(' \n'),
+                           "autoridad":li.find("h4").text.strip(' \n')}
             subastaLink["codSubasta"]=subastaLink["codSubasta"][:subastaLink["codSubasta"].find("\n")]
             
-            if p[2].text.strip(' \n')[0:10]=="Expediente":
-                subastaLink["expediente"]=p[2].text.strip(' \n')[12:]
-                subastaLink["estado"]=p[3].text.strip(' \n')[8:]
+            if p[0].text.strip(' \n')[0:10]=="Expediente":
+                subastaLink["expediente"]=p[0].text.strip(' \n')[12:]
+                subastaLink["estado"]=p[1].text.strip(' \n')[8:]
+                subastaLink["descripcion"]=p[2].text.replace(";",",")
                 
-            elif p[2].text.strip(' \n')[0:6]=="Estado":
-                subastaLink["estado"]=p[2].text.strip(' \n')[8:]
+            elif p[0].text.strip(' \n')[0:6]=="Estado":
+                subastaLink["estado"]=p[0].text.strip(' \n')[8:]
+                subastaLink["descripcion"]=p[1].text.replace(";",",")
             
-            subastaLink["estado"]=subastaLink["estado"][:subastaLink["estado"].find("\n")]
-            descr=li.find(attrs={"class":"documento"}).text.strip(' \n')
-            subastaLink["descripcion"]=descr[:descr.find("\n")].replace(";",",")
+            subastaLink["estado"]=subastaLink["estado"][:subastaLink["estado"].find(" -")]
             subastaLink["link"]="https://subastas.boe.es"+li.find("a", href=True)["href"][1:]
             
             listSubastas.append(subastaLink)
         
-        pagSig = bs.find(attrs={"class":"pagSig"})
-        
-        if pagSig is not None:
-            self.getSubastaLink(url="https://subastas.boe.es/"+pagSig.find_parent("a", href=True)["href"],listSubastas=listSubastas) 
+        pagSig = bs.find(attrs={"class":"paginar2"}).find_all("li")[-1]
+        desc_pagSig = pagSig.text.strip("\n")
+
+        if pagSig is not None and desc_pagSig == 'Pág. siguiente':
+            self.getSubastaLink(url="https://subastas.boe.es/"+pagSig.find("a", href=True)["href"],listSubastas=listSubastas) 
         
         self.listSubastas = listSubastas
         return len(self.listSubastas)
@@ -208,7 +211,7 @@ class SubastaBOEScraper():
         bs = BeautifulSoup(html, 'html.parser')
         
         infoGeneral={}
-        trs=bs.find("table", attrs={"class":"datosSubastas"}).find_all("tr")
+        trs=bs.find("table").find_all("tr")
         for tr in trs:    
             infoGeneral[prefij + tr.find("th").text + sufij]=tr.find("td").text.strip("\n").replace(";",",").replace('\n',' ')
         
@@ -256,7 +259,7 @@ class SubastaBOEScraper():
         Keyword arguments:
             urlSubasta -- URL que a scrapear           
         '''
-
+        
         self.http.setURL(urlSubasta)
         self.http.setTiempo(0.5)
         html = self.http.getHtml()
@@ -273,7 +276,7 @@ class SubastaBOEScraper():
                   'lotes':[]   }
         
         # Cada subasta puede tener más de un lote, cada uno en una url diferente.
-        lis=bs.find("ul", attrs={"class":"navlistver2"}).find_all("li")
+        lis=bs.find("ul", attrs={"class":"navlistver"}).find_all("li")
         
         for li in lis:
             url = "https://subastas.boe.es"+li.find("a", href=True)["href"][1:]
@@ -289,7 +292,7 @@ class SubastaBOEScraper():
             bs = BeautifulSoup(html, 'html.parser')
             
             # Cada lote tiene la información distribuida en al menos dos tablas
-            tables=bs.find_all("table", attrs={"class":"datosSubastas"})
+            tables=bs.find_all("table")
             lote["numBienes"]=len(bs.find_all("div", attrs={"class":"bloqueSubastaBien"}))
             for table in tables:
                 trs = table.find_all("tr")
@@ -360,7 +363,7 @@ class SubastaBOEScraper():
         acreedores=[]
         
         # Cada subasta puede tener más de un interesado.
-        tables=bs.find_all("table", attrs={"class":"datosSubastas"})
+        tables=bs.find_all("table")
         for table in tables:
             acreedor = {}
             trs = table.find_all("tr")
@@ -398,7 +401,7 @@ class SubastaBOEScraper():
             return {"Lotes":0,
                     'lotes':[bienes]}
                     
-        elif argument in ["Acreedores","Acreedor","Acreedor privilegiado", "Acreedores privilegiados"]: 
+        elif argument in ["Relacionados", "Acreedores","Acreedor","Acreedor privilegiado", "Acreedores privilegiados"]: 
             acreedores=self.__scrape_Acreedores(url)
             if argument in ["Acreedor privilegiado","Acreedores privilegiados"]:
                 acreedores["acreedorPrivilegiado"]=True
@@ -445,7 +448,7 @@ class SubastaBOEScraper():
                 continue
             sub["Scrap"]=True
                     
-            rand = np.random.ranf()
+            rand = np.random.rand()
             if rand > 0.95:
                 time.sleep(rand*5)
             
@@ -489,8 +492,9 @@ class SubastaBOEScraper():
             elif "Scrap" not in ls.keys():
                 j+=1
             ii=ii+1
-            
+        
         print("Num errors: %d - Num pendiente scrap: %d \n Los index a revisar son: %s"%(i, j, index.__str__()))
+        return index
 
     def data2csv(self, path, dictFilename={}):        
         ''' El siguiente método extrae el diccionario con todos los campos disponibles a csv.
@@ -612,7 +616,7 @@ class SubastaBOEScraper():
                     for key in [x for x in keyLotes if x not in ['codSubasta', 'Lote']]:
                         if key in lote.keys():
                             try:
-                                fileLotes.write(str(lote[key]).replace(";","-").replace("\r"," ") + ";")
+                                fileLotes.write(str(lote[key]).replace(";","-").replace("\r"," ").replace("\uf020","") + ";")
                             except Exception as e:
                                 fileLotes.write(";")
                                 print("Error! Sub: %s - Lote: %s \n %s"%(codSubasta,lote['Lote'],e.args))
